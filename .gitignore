@@ -1,0 +1,18 @@
+# 运行时日志
+app/server.log
+app/server.err.log
+*.log
+
+# 原始素材（敏感：真实对话批次，不入库）
+data-fa7ca4b7-*/
+data-fa7ca4b7-*.zip
+_extracted/
+_digest.txt
+_card_digest.txt
+_inventory.txt
+_probe.txt
+
+# 系统/常规
+node_modules/
+.DS_Store
+Thumbs.db

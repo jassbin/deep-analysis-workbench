@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>深度分析工作台 · Deep Analysis Workbench</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">深度分析工作台 <span class="tag">MVP</span></div>
+  <div class="project-name" id="projectName">—</div>
+  <button class="btn primary" id="btnNew">＋ 新建分析</button>
+  <nav class="topnav">
+    <a class="active" href="index.html">工作台</a>
+    <a href="cases.html">案例库</a>
+  </nav>
+  <div class="mode-switch" id="modeSwitch">
+    <button class="mode-btn active" data-mode="neutral">中性</button>
+    <button class="mode-btn" data-mode="adversarial">对抗</button>
+  </div>
+  <button class="btn ghost" id="btnReview">审校模式</button>
+  <button class="btn ghost" id="btnExport" title="导出报告（演示）">导出</button>
+</header>
+
+<main class="layout" id="layout">
+  <aside class="chain" id="chainPane">
+    <div class="pane-title">推理链 <span id="chainStatus" class="hint"></span></div>
+    <ol class="chain-list" id="chainList"></ol>
+    <div class="chain-foot">
+      <button class="btn small" id="btnRecompute" disabled>一键重算下游</button>
+      <div class="hint" id="dirtyHint"></div>
+    </div>
+  </aside>
+
+  <section class="detail" id="detailPane">
+    <div class="detail-head">
+      <div>
+        <div class="detail-step" id="detailStep">—</div>
+        <h2 class="detail-title" id="detailTitle">—</h2>
+      </div>
+      <button class="btn danger-ghost" id="btnDisagree">我不同意</button>
+    </div>
+    <div class="detail-body" id="detailBody"></div>
+  </section>
+
+  <aside class="inspector" id="inspectorPane">
+    <div class="pane-title">检查器</div>
+    <div class="insp-block">
+      <div class="insp-head">证据分级</div>
+      <ul class="evidence-list" id="evidenceList"></ul>
+    </div>
+    <div class="insp-block">
+      <div class="insp-head">置信度</div>
+      <div id="confidenceBox" class="conf-box"></div>
+    </div>
+    <div class="insp-block">
+      <div class="insp-head">批注</div>
+      <textarea id="noteBox" rows="4" placeholder="添加批注…"></textarea>
+      <button class="btn small" id="btnAddNote">保存批注</button>
+      <ul class="note-list" id="noteList"></ul>
+    </div>
+  </aside>
+</main>
+
+<section class="input-screen" id="inputScreen">
+  <div class="input-card">
+    <div class="input-title">新建分析 · 输入你的事件</div>
+    <div class="input-sub">产品流程：粘贴事件 → 生成 7 步草稿骨架 → 你在工作台里仲裁异常、修订节点、审校质询。<br>
+    <span class="hint">当前为「人机协作草稿模式」：系统给结构与候选，判断由你来做；真实 LLM 深度穿透待后端接入。</span></div>
+    <label class="input-label" for="inputTitle">事件标题（可选）</label>
+    <input type="text" id="inputTitle" placeholder="如：某公司突然宣布涨价">
+    <label class="input-label" for="inputText">事件描述（粘贴新闻/内部材料/你的观察，越具体越好）</label>
+    <textarea id="inputText" rows="8" placeholder="把你知道的事实、时间线、各方、你觉得不对劲的地方都贴进来……"></textarea>
+    <div class="search-row">
+      <button class="btn" id="btnSearch">🔍 联网检索并核实</button>
+      <span class="hint" id="searchStatus"></span>
+    </div>
+    <div id="searchResults"></div>
+    <div class="input-actions">
+      <button class="btn ghost" id="btnInputClose">取消</button>
+      <button class="btn" id="btnDemo">载入演示数据</button>
+      <button class="btn primary" id="btnBuild">生成分析骨架 →</button>
+    </div>
+  </div>
+</section>
+<section class="review hidden" id="reviewPane">
+  <div class="review-head">
+    <div class="pane-title">审校会话 · 交叉质询 <span class="hint">辩护 / 让步 / 挂起 三选一，不许打太极</span></div>
+    <button class="btn ghost" id="btnCloseReview">关闭</button>
+  </div>
+  <div class="review-body" id="reviewBody">
+    <div class="review-hint">
+      <p>对报告任意结论发起质询。系统必须落三种响应之一：<b>辩护</b>（展示推导链不改结论）、<b>让步并修订</b>（下调置信度/改写结论并计入审校记录）、<b>挂起</b>（证据不足，登记未决问题）。</p>
+      <p>试试下面的预设质询，或输入你自己的问题：</p>
+      <div class="preset" id="presetList"></div>
+    </div>
+  </div>
+  <div class="review-input">
+    <input type="text" id="reviewInput" placeholder="输入你的质询…">
+    <button class="btn primary" id="btnSendReview">质询</button>
+  </div>
+</section>
+
+<div class="modal hidden" id="modal">
+  <div class="modal-card">
+    <div class="modal-title" id="modalTitle">修订</div>
+    <div class="modal-sub" id="modalSub"></div>
+    <textarea id="modalText" rows="4" placeholder="你的替代判断 / 理由…"></textarea>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btnModalCancel">取消</button>
+      <button class="btn primary" id="btnModalOk">提交修订</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
