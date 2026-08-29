@@ -35,25 +35,28 @@ function detectProxy() {
   }
   return null;
 }
-const PROXY = detectProxy();
+let proxyCache = { value: null, t: 0 };
+// 动态探测代理（5 秒缓存），随时开关外网都能自适应
+function getProxy() {
+  if (Date.now() - proxyCache.t > 5000) { proxyCache.value = detectProxy(); proxyCache.t = Date.now(); }
+  return proxyCache.value;
+}
 
-function httpGet(url, opts) {
-  opts = opts || {};
-  const timeout = opts.timeout || 8000;
-  const args = ['-s', '-L', '--http1.1', '--max-time', String(timeout), '--connect-timeout', '5', '-A', UA];
-  if (opts.acceptLang) args.push('-H', 'Accept-Language: ' + opts.acceptLang);
-  if (opts.proxy !== false && PROXY) args.push('-x', PROXY);
-  args.push(url);
+function fetchWith(url, opts) {
   return new Promise((resolve) => {
+    const args = ['-s', '-L', '--http1.1', '--max-time', String(opts.timeout), '--connect-timeout', '4', '-A', UA];
+    if (opts.acceptLang) args.push('-H', 'Accept-Language: ' + opts.acceptLang);
+    if (opts.proxy) args.push('-x', opts.proxy);
+    args.push(url);
     execFile(CURL, args, { windowsHide: true, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
       if (err) {
         // curl 不可用时回退到 fetch（undici）
         if (err.code === 'ENOENT' && typeof fetch === 'function') {
           const h = { 'User-Agent': UA };
           if (opts.acceptLang) h['Accept-Language'] = opts.acceptLang;
-          fetch(url, { headers: h, signal: AbortSignal.timeout(timeout) })
+          fetch(url, { headers: h, signal: AbortSignal.timeout(opts.timeout) })
             .then((r) => r.text())
-            .then((t) => resolve({ ok: true, body: t }))
+            .then((tt) => resolve({ ok: true, body: tt }))
             .catch(() => resolve({ ok: false, body: '' }));
         } else {
           resolve({ ok: false, body: '' });
@@ -64,6 +67,18 @@ function httpGet(url, opts) {
     });
   });
 }
+
+function httpGet(url, opts) {
+  opts = opts || {};
+  const timeout = opts.timeout || 8000;
+  const proxy = (opts.proxy !== false) ? getProxy() : null;
+  return fetchWith(url, { timeout: timeout, proxy: proxy, acceptLang: opts.acceptLang }).then((r) => {
+    // 代理刚失效（如外网被关）时自动降级为直连重试一次
+    if (!r.ok && proxy) return fetchWith(url, { timeout: timeout, proxy: null, acceptLang: opts.acceptLang });
+    return r;
+  });
+}
+
 
 function stripHtml(s) {
   return String(s || '')
