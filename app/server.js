@@ -88,7 +88,77 @@ function stripHtml(s) {
     .replace(/&nbsp;/g, ' ').trim();
 }
 
+/* ---------- 证据分级 + 交叉印证（S13 规则版，无 LLM；移植自对标项目 intel） ---------- */
+const TIER_LABEL = { 5: '权威一手', 4: '官方机构', 3: '严肃媒体', 2: 'UGC/社交', 1: '未知/个人' };
+const TIER5 = ['gov.cn', 'news.cn', 'xinhuanet.com', 'people.com.cn', 'cctv.com', 'cnr.cn', 'gmw.cn', 'chinadaily.com.cn', 'govinfo.gov', 'whitehouse.gov', 'congress.gov', 'sec.gov', 'court.gov.cn', 'spp.gov.cn', 'szse.cn', 'sse.com.cn', 'csrc.gov.cn', 'pbc.gov.cn', 'cninfo.com.cn', 'moe.gov.cn', 'miit.gov.cn', 'ndrc.gov.cn', 'mof.gov.cn', 'samr.gov.cn'];
+const TIER4 = ['edu.cn', 'ac.cn', 'cas.cn', 'openalex.org', 'arxiv.org', 'semanticscholar.org', 'nature.com', 'science.org'];
+const TIER3 = ['baike.baidu.com', 'wikipedia.org', 'caixin.com', '21jingji.com', 'yicai.com', 'thepaper.cn', 'jiemian.com', '36kr.com', 'huxiu.com', 'stcn.com', 'cls.cn', 'eeo.com.cn', 'reuters.com', 'bloomberg.com', 'ft.com', 'wsj.com', 'nytimes.com', 'economist.com', 'apnews.com', 'bbc.com', 'cnn.com', 'nikkei.com', 'eastmoney.com', '10jqka.com.cn', 'hexun.com'];
+const TIER2 = ['zhihu.com', 'weibo.com', 'weibo.cn', 'xiaohongshu.com', 'xhslink.com', 'douyin.com', 'bilibili.com', 'tieba.baidu.com', 'baijiahao.baidu.com', 'mp.weixin.qq.com', 'facebook.com', 'twitter.com', 'x.com', 'reddit.com', 'youtube.com', 't.me', 'jianshu.com', 'csdn.net', 'juejin.cn'];
+
+function sourceTier(url) {
+  let domain = '';
+  try { domain = new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch (e) { domain = ''; }
+  let tier = 1;
+  for (let t = 5; t >= 2; t--) {
+    const list = [TIER5, TIER4, TIER3, TIER2][5 - t];
+    for (const s of list) {
+      if (domain === s || domain.endsWith('.' + s)) { tier = t; break; }
+    }
+    if (tier !== 1) break;
+  }
+  return { domain: domain, tier: tier, label: TIER_LABEL[tier] };
+}
+
+const ANCHOR_RE = /(?:20[12]\d|19\d\d)年?|[0-9][0-9.,]*(?:%|％|万亿|亿|千万|百万|万|元|美元|亿元|万元|兆|倍)?/g;
+const ANCHOR_STOP = new Set(['年', '月', '日', '的', '了', '和', '与', '及', '是', '在', '一个', '一是']);
+
+function corroborate(docs) {
+  const byDomain = {}; const domainTier = {}; const tierCount = {};
+  for (const d of docs || []) {
+    const t = sourceTier(d.url || '');
+    if (!t.domain) continue;
+    (byDomain[t.domain] = byDomain[t.domain] || []).push(String(d.body || ''));
+    domainTier[t.domain] = t.tier;
+    tierCount[t.tier] = (tierCount[t.tier] || 0) + 1;
+  }
+  const anchorIn = {};
+  for (const dom of Object.keys(byDomain)) {
+    const seen = new Set();
+    let m;
+    ANCHOR_RE.lastIndex = 0;
+    const text = byDomain[dom].join('\n');
+    while ((m = ANCHOR_RE.exec(text)) !== null) {
+      const tok = m[0];
+      if (tok.length <= 1 || ANCHOR_STOP.has(tok)) continue;
+      if (seen.has(tok)) continue;
+      seen.add(tok);
+      (anchorIn[tok] = anchorIn[tok] || new Set()).add(dom);
+    }
+  }
+  const anchors = [];
+  for (const tok of Object.keys(anchorIn)) {
+    const doms = anchorIn[tok];
+    if (doms.size >= 2) {
+      let topTier = 1;
+      for (const d of doms) if ((domainTier[d] || 1) > topTier) topTier = domainTier[d];
+      anchors.push({ anchor: tok, domains: doms.size, topTier: topTier });
+    }
+  }
+  anchors.sort((a, b) => b.domains - a.domains || b.topTier - a.topTier);
+  const domainCount = Object.keys(byDomain).length;
+  const tierDist = {};
+  Object.keys(tierCount).map(Number).sort((a, b) => b - a).forEach((k) => { tierDist[k] = tierCount[k]; });
+  return {
+    domainCount: domainCount,
+    tierDist: tierDist,
+    tierLabels: TIER_LABEL,
+    anchors: anchors.slice(0, 12),
+    perDomain: Object.keys(byDomain).map((d) => ({ domain: d, count: byDomain[d].length, tier: domainTier[d], label: TIER_LABEL[domainTier[d]] }))
+  };
+}
+
 /* ---------- /api/search 事件联网检索（百度百科 + DuckDuckGo + 必应，尽力而为） ---------- */
+
 function cjkKeywords(q) {
   const out = [];
   for (const term of String(q || '').split(/\s+/)) {
@@ -257,8 +327,10 @@ async function handleSearch(req, res) {
   for (const x of bing2) push(x);
 
   const capped = results.slice(0, 8);
+  for (const x of capped) { const st = sourceTier(x.url); x.tier = st.tier; x.tierLabel = st.label; }
+  const summary = corroborate(capped.map((r) => ({ url: r.url, body: (r.title || '') + ' ' + (r.snippet || '') })));
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ q: q, results: capped, note: capped.length ? '' : '未检索到相关结果：可换关键词，或该事件太新/太冷门。' }));
+  res.end(JSON.stringify({ q: q, results: capped, summary: summary, note: capped.length ? '' : '未检索到相关结果：可换关键词，或该事件太新/太冷门。' }));
 }
 
 const server = http.createServer((req, res) => {
@@ -276,4 +348,7 @@ const server = http.createServer((req, res) => {
     });
   });
 });
-server.listen(port, host, () => console.log('DA workbench serving: http://' + host + ':' + port));
+if (require.main === module) {
+  server.listen(port, host, () => console.log('DA workbench serving: http://' + host + ':' + port));
+}
+module.exports = { cjkKeywords, searchDdg, searchBrave, searchBing, searchBaike, sourceTier, corroborate };

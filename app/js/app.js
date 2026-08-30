@@ -381,7 +381,7 @@
     if (q && first) q += " " + first; else if (!q) q = first;
     return { q: q, t: title };
   }
-  function renderSearchResults(results, note) {
+  function renderSearchResults(results, note, summary) {
     var box = $("searchResults");
     if (!results || !results.length) {
       box.innerHTML = '<div class="search-empty">' + esc(note || "未检索到相关结果，可换关键词或补充事件主体名称。") + "</div>";
@@ -390,12 +390,23 @@
     state.lastSearch = results;
     var h = '<div class="hint" style="margin-top:10px">已找到 ' + results.length + " 条，可逐条加入材料：</div>";
     results.forEach(function (r, i) {
-      h += '<div class="search-result"><span class="src">' + esc(r.source) + " · 单一信源[中]</span>" +
+      var badge = r.tierLabel ? '<span class="tier t' + (r.tier || 1) + '">' + esc(r.tierLabel) + "</span>" : "";
+      h += '<div class="search-result"><span class="src">' + badge + esc(r.source) + ' · 单一信源[中]</span>' +
         '<h4>' + esc(r.title) + "</h4>" +
         (r.snippet ? "<p>" + esc(r.snippet) + "</p>" : "") +
         '<div class="url">' + esc(r.url) + "</div>" +
         '<div class="actions"><button class="btn small" data-add="' + i + '">＋ 加入材料</button></div></div>';
     });
+    if (summary) {
+      var distText = [];
+      for (var k in summary.tierDist) distText.push(summary.tierLabels[k] + "×" + summary.tierDist[k]);
+      h += '<div class="summary-box"><b>信源小结</b>：独立域名 ' + summary.domainCount + " 个 · " + distText.join(" · ");
+      if (summary.anchors && summary.anchors.length) {
+        h += "<br>跨源交叉印证锚点：";
+        summary.anchors.slice(0, 6).forEach(function (a) { h += '<span class="anchor-chip">' + esc(a.anchor) + "</span>"; });
+      }
+      h += "</div>";
+    }
     box.innerHTML = h;
   }
   $("btnSearch").onclick = function () {
@@ -406,7 +417,7 @@
       .then(function (r) { return r.json(); })
       .then(function (j) {
         $("searchStatus").textContent = "完成";
-        renderSearchResults(j.results, j.note);
+        renderSearchResults(j.results, j.note, j.summary);
       })
       .catch(function () {
         $("searchStatus").textContent = "检索失败（服务未运行？）";
@@ -418,7 +429,7 @@
     var r = state.lastSearch[Number(idx)];
     if (!r) return;
     var fact = r.title + "：" + (r.snippet || "").slice(0, 120);
-    var m = { fact: fact, tier: r.tier || "mid", src: r.source + " [" + r.url + "]" };
+    var m = { fact: fact, tier: "mid", src: (r.tierLabel ? r.tierLabel + " · " : "") + r.source + " [" + r.url + "]" };
     state.pendingMaterials.push(m);
     var btn = e.target;
     btn.textContent = "已加入 ✓";
